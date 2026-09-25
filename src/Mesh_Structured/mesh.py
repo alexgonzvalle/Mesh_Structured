@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import utm
 from matplotlib.axes import Axes
 from matplotlib.path import Path as MatplotlibPath
 from scipy.interpolate import RegularGridInterpolator
@@ -52,15 +53,12 @@ class MeshStructured:
         Logger name.
     """
 
-    def __init__(
-        self,
-        key: str,
-        coord_type: CoordinateType | str = CoordinateType.UTM,
-        name_logger: str = "Mesh_Structured",
-    ) -> None:
+    def __init__(self, key: str, coord_type: CoordinateType | str = CoordinateType.UTM, name_logger: str = "Mesh_Structured", utm_zone_number: int | None = None, utm_zone_letter: str | None = None,) -> None:
         self.logger = get_default_logger(name_logger)
         self.key = key
         self.coord_type = CoordinateType.coerce(coord_type)
+        self.utm_zone_number = utm_zone_number
+        self.utm_zone_letter = utm_zone_letter
         self._state = _MeshState()
 
     @property
@@ -174,7 +172,12 @@ class MeshStructured:
         factor_select: float = 1,
         random_seed: int | None = None,
     ) -> None:
-        """Compute bathymetry on the structured mesh."""
+        """Compute bathymetry on the structured mesh.
+
+        For curvilinear UTM source coordinates, provide ``utm_zone_number`` and
+        ``utm_zone_letter`` to interpolate on the original rectilinear
+        longitude/latitude grid without triangulating the projected points.
+        """
 
         xb_array = as_float_array(xb, name="xb")
         yb_array = as_float_array(yb, name="yb")
@@ -212,15 +215,40 @@ class MeshStructured:
                 factor_select,
             )
 
-        x_axis, y_axis = self._rectilinear_axes(xb_array, yb_array)
-        interpolator = RegularGridInterpolator(
-            (y_axis, x_axis),
-            zb_array,
-            method="linear",
-            bounds_error=False,
-            fill_value=np.nan,
-        )
-        self._state.z = interpolator((self._require_y(), self._require_x()))
+        try:
+            x_axis, y_axis = self._rectilinear_axes(xb_array, yb_array)
+        except ValueError:
+            if self.coord_type is CoordinateType.UTM and (
+                self.utm_zone_number is not None or self.utm_zone_letter is not None
+            ):
+                if self.utm_zone_number is None or self.utm_zone_letter is None:
+                    raise ValueError(
+                        "utm_zone_number and utm_zone_letter must be provided together."
+                    )
+                self._state.z = self._interpolate_utm_via_lonlat(
+                    xb_array,
+                    yb_array,
+                    zb_array,
+                    zone_number=self.utm_zone_number,
+                    zone_letter=self.utm_zone_letter,
+                )
+            else:
+                _, _, self._state.z = interpolate_to_mesh(
+                    self._require_x(),
+                    self._require_y(),
+                    xb_array,
+                    yb_array,
+                    zb_array,
+                )
+        else:
+            interpolator = RegularGridInterpolator(
+                (y_axis, x_axis),
+                zb_array,
+                method="linear",
+                bounds_error=False,
+                fill_value=np.nan,
+            )
+            self._state.z = interpolator((self._require_y(), self._require_x()))
         self.logger.info("Bathymetry interpolation completed for key %s.", self.key)
 
         if xc is not None or yc is not None:
@@ -380,6 +408,38 @@ class MeshStructured:
         points = np.column_stack((self._require_x().ravel(), self._require_y().ravel()))
         mask = contour.contains_points(points).reshape(self._require_x().shape)
         self._state.z = np.where(mask, self._require_z(), np.nan)
+
+    def _interpolate_utm_via_lonlat(
+        self,
+        x_coordinates: np.ndarray,
+        y_coordinates: np.ndarray,
+        values: np.ndarray,
+        *,
+        zone_number: int,
+        zone_letter: str,
+    ) -> np.ndarray:
+        source_lat, source_lon = utm.to_latlon(
+            x_coordinates,
+            y_coordinates,
+            zone_number,
+            zone_letter=zone_letter,
+        )
+        lon_axis, lat_axis = self._rectilinear_axes(source_lon, source_lat)
+
+        target_lat, target_lon = utm.to_latlon(
+            self._require_x(),
+            self._require_y(),
+            zone_number,
+            zone_letter=zone_letter,
+        )
+        interpolator = RegularGridInterpolator(
+            (lat_axis, lon_axis),
+            values,
+            method="linear",
+            bounds_error=False,
+            fill_value=np.nan,
+        )
+        return interpolator((target_lat, target_lon))
 
     @staticmethod
     def _rectilinear_axes(

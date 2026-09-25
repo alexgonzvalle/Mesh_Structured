@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "Mesh_Structured"
-version = "3.0.0"
+version = "3.0.1"
 description = "Structured rectangular meshes for bathymetry extraction and interpolation."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,6 +14,7 @@ dependencies = [
   "matplotlib>=3.8",
   "numpy>=1.26",
   "scipy>=1.11",
+  "utm>=0.9",
 ]
 keywords = ["bathymetry", "mesh", "scientific-computing", "structured-grid"]
 classifiers = [

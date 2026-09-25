@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import numpy.testing as npt
 import pytest
+import utm
 
 from Mesh_Structured import CoordinateType, MeshStructured
 
@@ -146,21 +147,54 @@ def test_execute_accepts_descending_source_axes() -> None:
     npt.assert_allclose(mesh.z, mesh.x + 2.0 * mesh.y)
 
 
-def test_execute_rejects_non_rectilinear_coordinates() -> None:
+def test_execute_accepts_curvilinear_coordinates() -> None:
     mesh = MeshStructured("main")
+    xb = np.array([[0.0, 1.0], [0.1, 1.1]])
+    yb = np.array([[0.0, 0.0], [1.0, 1.0]])
 
-    with pytest.raises(ValueError, match="rectilinear mesh"):
-        mesh.execute(
-            xb=np.array([[0.0, 1.0], [0.1, 1.0]]),
-            yb=np.array([[0.0, 0.0], [1.0, 1.0]]),
-            zb=np.ones((2, 2)),
-            x1=0.0,
-            x2=1.0,
-            y1=0.0,
-            y2=1.0,
-            dx=0.5,
-            dy=0.5,
-        )
+    mesh.execute(
+        xb=xb,
+        yb=yb,
+        zb=xb + 2.0 * yb,
+        x1=0.1,
+        x2=1.1,
+        y1=0.0,
+        y2=1.0,
+        dx=0.5,
+        dy=0.5,
+    )
+
+    npt.assert_allclose(mesh.z, mesh.x + 2.0 * mesh.y)
+
+
+def test_execute_interpolates_curvilinear_utm_grid_via_lonlat() -> None:
+    lon_axis = np.array([-3.01, -3.0, -2.99])
+    lat_axis = np.array([43.0, 43.01, 43.02])
+    lon, lat = np.meshgrid(lon_axis, lat_axis)
+    x_utm, y_utm, _, _ = utm.from_latlon(
+        lat,
+        lon,
+        force_zone_number=30,
+        force_zone_letter="N",
+    )
+    mesh = MeshStructured("main", coord_type=CoordinateType.UTM)
+
+    mesh.execute(
+        x_utm,
+        y_utm,
+        lon + 2.0 * lat,
+        x1=float(np.min(x_utm)) + 100.0,
+        x2=float(np.max(x_utm)) - 100.0,
+        y1=float(np.min(y_utm)) + 100.0,
+        y2=float(np.max(y_utm)) - 100.0,
+        dx=500.0,
+        dy=500.0,
+        utm_zone_number=30,
+        utm_zone_letter="N",
+    )
+
+    target_lat, target_lon = utm.to_latlon(mesh.x, mesh.y, 30, zone_letter="N")
+    npt.assert_allclose(mesh.z, target_lon + 2.0 * target_lat, rtol=0.0, atol=3e-6)
 
 
 def test_interpolate_returns_nan_outside_convex_hull() -> None:
