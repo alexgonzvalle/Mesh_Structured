@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "Mesh_Structured"
-version = "3.0.1"
+version = "3.0.2"
 description = "Structured rectangular meshes for bathymetry extraction and interpolation."
 readme = "README.md"
 requires-python = ">=3.10"

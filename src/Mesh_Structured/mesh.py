@@ -53,7 +53,7 @@ class MeshStructured:
         Logger name.
     """
 
-    def __init__(self, key: str, coord_type: CoordinateType | str = CoordinateType.UTM, name_logger: str = "Mesh_Structured", utm_zone_number: int | None = None, utm_zone_letter: str | None = None,) -> None:
+    def __init__(self, key: str, coord_type: CoordinateType | str = CoordinateType.UTM, utm_zone_number: int | None = None, utm_zone_letter: str | None = None, name_logger: str = "Mesh_Structured",) -> None:
         self.logger = get_default_logger(name_logger)
         self.key = key
         self.coord_type = CoordinateType.coerce(coord_type)
