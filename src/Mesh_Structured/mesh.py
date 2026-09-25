@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.path import Path as MatplotlibPath
-from scipy.interpolate import griddata
+from scipy.interpolate import RegularGridInterpolator
 
 from ._grid import MeshDefinition, build_definition_from_bounds
 from ._logging import get_default_logger
@@ -199,24 +199,28 @@ class MeshStructured:
 
         if factor_select < 1:
             generator = np.random.default_rng(random_seed)
-            sample_size = max(1, int(len(xb_array) * factor_select))
-            indices = generator.choice(len(xb_array), size=sample_size, replace=False)
+            original_size = len(xb_array)
+            sample_size = min(original_size, max(2, int(original_size * factor_select)))
+            indices = np.sort(generator.choice(original_size, size=sample_size, replace=False))
             xb_array = xb_array[indices]
             yb_array = yb_array[indices]
             zb_array = zb_array[indices]
             self.logger.info(
-                "Selected %s bathymetry samples out of %s using factor_select=%s.",
+                "Selected %s bathymetry rows out of %s using factor_select=%s.",
                 sample_size,
-                len(zb_array),
+                original_size,
                 factor_select,
             )
 
-        self._state.z = griddata(
-            (xb_array.ravel(), yb_array.ravel()),
-            zb_array.ravel(),
-            (self._require_x(), self._require_y()),
+        x_axis, y_axis = self._rectilinear_axes(xb_array, yb_array)
+        interpolator = RegularGridInterpolator(
+            (y_axis, x_axis),
+            zb_array,
             method="linear",
+            bounds_error=False,
+            fill_value=np.nan,
         )
+        self._state.z = interpolator((self._require_y(), self._require_x()))
         self.logger.info("Bathymetry interpolation completed for key %s.", self.key)
 
         if xc is not None or yc is not None:
@@ -376,6 +380,34 @@ class MeshStructured:
         points = np.column_stack((self._require_x().ravel(), self._require_y().ravel()))
         mask = contour.contains_points(points).reshape(self._require_x().shape)
         self._state.z = np.where(mask, self._require_z(), np.nan)
+
+    @staticmethod
+    def _rectilinear_axes(
+        x_coordinates: np.ndarray,
+        y_coordinates: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Extract the axes from coordinate arrays created by ``meshgrid``."""
+
+        if x_coordinates.ndim != 2 or y_coordinates.ndim != 2:
+            raise ValueError("xb and yb must be two-dimensional rectangular mesh coordinates.")
+
+        x_axis = x_coordinates[0, :]
+        y_axis = y_coordinates[:, 0]
+        if not np.allclose(x_coordinates, x_axis[None, :], equal_nan=False) or not np.allclose(
+            y_coordinates,
+            y_axis[:, None],
+            equal_nan=False,
+        ):
+            raise ValueError("xb and yb must define a rectilinear mesh created with numpy.meshgrid.")
+
+        for name, axis in (("xb", x_axis), ("yb", y_axis)):
+            differences = np.diff(axis)
+            if differences.size == 0 or not (
+                np.all(differences > 0) or np.all(differences < 0)
+            ):
+                raise ValueError(f"The {name} axis must be strictly ascending or descending.")
+
+        return x_axis, y_axis
 
     def _require_definition(self) -> MeshDefinition:
         if self._state.definition is None:

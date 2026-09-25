@@ -7,8 +7,8 @@ import pytest
 from Mesh_Structured import CoordinateType, MeshStructured
 
 
-def test_execute_generates_expected_mesh(scattered_plane_data: tuple[np.ndarray, np.ndarray, np.ndarray]) -> None:
-    xb, yb, zb = scattered_plane_data
+def test_execute_generates_expected_mesh(rectangular_plane_data: tuple[np.ndarray, np.ndarray, np.ndarray]) -> None:
+    xb, yb, zb = rectangular_plane_data
     mesh = MeshStructured("main", coord_type=CoordinateType.UTM)
 
     mesh.execute(xb, yb, zb, x1=0.0, x2=1.0, y1=0.0, y2=1.0, dx=0.5, dy=0.5)
@@ -24,9 +24,9 @@ def test_execute_generates_expected_mesh(scattered_plane_data: tuple[np.ndarray,
 
 
 def test_execute_with_polygon_mask_replaces_values_outside_polygon(
-    scattered_plane_data: tuple[np.ndarray, np.ndarray, np.ndarray],
+    rectangular_plane_data: tuple[np.ndarray, np.ndarray, np.ndarray],
 ) -> None:
-    xb, yb, zb = scattered_plane_data
+    xb, yb, zb = rectangular_plane_data
     mesh = MeshStructured("main")
 
     mesh.execute(
@@ -50,11 +50,13 @@ def test_execute_with_polygon_mask_replaces_values_outside_polygon(
 def test_configuration_round_trip(tmp_path) -> None:
     mesh = MeshStructured("main", coord_type="LONLAT")
     config_path = tmp_path / "mesh.ini"
+    source_axis = np.array([0.0, 1.0])
+    source_x, source_y = np.meshgrid(source_axis, source_axis)
 
     mesh.execute(
-        xb=np.array([0.0, 1.0, 0.0]),
-        yb=np.array([0.0, 0.0, 1.0]),
-        zb=np.array([1.0, 2.0, 3.0]),
+        xb=source_x,
+        yb=source_y,
+        zb=source_x + source_y,
         x1=1.0,
         x2=3.0,
         y1=4.0,
@@ -77,10 +79,12 @@ def test_configuration_round_trip(tmp_path) -> None:
 
 def test_save_and_load_bathymetry_round_trip(tmp_path) -> None:
     mesh = MeshStructured("main")
+    source_axis = np.array([0.0, 1.0])
+    source_x, source_y = np.meshgrid(source_axis, source_axis)
     mesh.execute(
-        xb=np.array([0.0, 1.0, 0.0, 1.0]),
-        yb=np.array([0.0, 0.0, 1.0, 1.0]),
-        zb=np.array([-1.0, -2.0, -3.0, -4.0]),
+        xb=source_x,
+        yb=source_y,
+        zb=-(1.0 + source_x + 2.0 * source_y),
         x1=0.0,
         x2=1.0,
         y1=0.0,
@@ -105,28 +109,68 @@ def test_save_and_load_bathymetry_round_trip(tmp_path) -> None:
     npt.assert_allclose(loaded_mesh.z, mesh.z)
 
 
-def test_execute_requires_bounds_when_configuration_is_missing(scattered_plane_data) -> None:
-    xb, yb, zb = scattered_plane_data
+def test_execute_requires_bounds_when_configuration_is_missing(rectangular_plane_data) -> None:
+    xb, yb, zb = rectangular_plane_data
     mesh = MeshStructured("main")
 
     with pytest.raises(ValueError, match="Mesh bounds"):
         mesh.execute(xb, yb, zb)
 
 
-def test_execute_validates_sampling_fraction(scattered_plane_data) -> None:
-    xb, yb, zb = scattered_plane_data
+def test_execute_validates_sampling_fraction(rectangular_plane_data) -> None:
+    xb, yb, zb = rectangular_plane_data
     mesh = MeshStructured("main")
 
     with pytest.raises(ValueError, match="factor_select"):
         mesh.execute(xb, yb, zb, x1=0.0, x2=1.0, y1=0.0, y2=1.0, factor_select=1.2)
 
 
+def test_execute_accepts_descending_source_axes() -> None:
+    x_axis = np.array([1.0, 0.5, 0.0])
+    y_axis = np.array([1.0, 0.5, 0.0])
+    xb, yb = np.meshgrid(x_axis, y_axis)
+    mesh = MeshStructured("main")
+
+    mesh.execute(
+        xb,
+        yb,
+        xb + 2.0 * yb,
+        x1=0.0,
+        x2=1.0,
+        y1=0.0,
+        y2=1.0,
+        dx=0.5,
+        dy=0.5,
+    )
+
+    npt.assert_allclose(mesh.z, mesh.x + 2.0 * mesh.y)
+
+
+def test_execute_rejects_non_rectilinear_coordinates() -> None:
+    mesh = MeshStructured("main")
+
+    with pytest.raises(ValueError, match="rectilinear mesh"):
+        mesh.execute(
+            xb=np.array([[0.0, 1.0], [0.1, 1.0]]),
+            yb=np.array([[0.0, 0.0], [1.0, 1.0]]),
+            zb=np.ones((2, 2)),
+            x1=0.0,
+            x2=1.0,
+            y1=0.0,
+            y2=1.0,
+            dx=0.5,
+            dy=0.5,
+        )
+
+
 def test_interpolate_returns_nan_outside_convex_hull() -> None:
     mesh = MeshStructured("main")
+    source_axis = np.array([0.0, 1.0])
+    source_x, source_y = np.meshgrid(source_axis, source_axis)
     mesh.execute(
-        xb=np.array([0.0, 1.0, 0.0, 1.0]),
-        yb=np.array([0.0, 0.0, 1.0, 1.0]),
-        zb=np.array([0.0, 1.0, 1.0, 2.0]),
+        xb=source_x,
+        yb=source_y,
+        zb=source_x + source_y,
         x1=0.0,
         x2=2.0,
         y1=0.0,
@@ -146,8 +190,8 @@ def test_interpolate_returns_nan_outside_convex_hull() -> None:
     assert np.isnan(values[-1, -1])
 
 
-def test_plot_does_not_mutate_bathymetry(scattered_plane_data) -> None:
-    xb, yb, zb = scattered_plane_data
+def test_plot_does_not_mutate_bathymetry(rectangular_plane_data) -> None:
+    xb, yb, zb = rectangular_plane_data
     mesh = MeshStructured("main")
     mesh.execute(xb, yb, zb, x1=0.0, x2=1.0, y1=0.0, y2=1.0, dx=0.5, dy=0.5)
     before = mesh.z.copy()
