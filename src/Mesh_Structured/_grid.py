@@ -35,10 +35,12 @@ class MeshDefinition:
     def build_coordinates(self) -> tuple[np.ndarray, np.ndarray]:
         """Construct the mesh coordinate arrays."""
 
-        xmax = self.xmin + self.lx
-        ymax = self.ymin + self.ly
-        x_axis = np.arange(self.xmin, xmax, self.dx, dtype=float)
-        y_axis = np.arange(self.ymin, ymax, self.dy, dtype=float)
+        # xmax = self.xmin + self.lx
+        # ymax = self.ymin + self.ly
+        # x_axis = np.arange(self.xmin, xmax, self.dx, dtype=float)
+        # y_axis = np.arange(self.ymin, ymax, self.dy, dtype=float)
+        x_axis = self.xmin + (np.arange(self.nx) + 0.5) * self.dx
+        y_axis = self.ymin + (np.arange(self.ny) + 0.5) * self.dy
         x_mesh, y_mesh = np.meshgrid(x_axis, y_axis)
         return x_mesh, np.flipud(y_mesh)
 
