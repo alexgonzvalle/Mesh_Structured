@@ -24,13 +24,13 @@ class MeshDefinition:
     def lx(self) -> float:
         """Total extent along x."""
 
-        return self.nx * self.dx
+        return (self.nx - 1) * self.dx
 
     @property
     def ly(self) -> float:
         """Total extent along y."""
 
-        return self.ny * self.dy
+        return (self.ny - 1) * self.dy
 
     def build_coordinates(self) -> tuple[np.ndarray, np.ndarray]:
         """Construct the mesh coordinate arrays."""
